@@ -1,4 +1,14 @@
-//! Iterators that never end.
+//! This crate provides a trait,
+//! `InfiniteIterator`,
+//! used to represent an iterator for which [`next`]
+//! can never return `None`.
+//!
+//! It additionally provides a macro, `ifor!`,
+//! which is identical a for loop
+//! except it supports breaking with a value
+//! when used on an infinite iterator.
+//!
+//! [`next`]: https://doc.rust-lang.org/stable/std/iter/trait.Iterator.html#tymethod.next
 #![no_std]
 
 #[cfg(feature = "std")]
@@ -362,5 +372,147 @@ impl InfiniteIterator for std::os::unix::net::Incoming<'_> {
     fn next_infinite(&mut self) -> Self::Item {
         // SAFETY: The Incoming iterator never ends
         unsafe { self.next().unwrap_unchecked() }
+    }
+}
+
+/// An extension of `for in` loops with better support for infinite iterators.
+///
+/// This macro presents a _superset_ of regular `for` loops:
+/// it works both with finite and infinite iterators.
+///
+/// # Examples
+///
+/// Use with a finite iterator:
+///
+/// ```
+/// use infinite_iterator::ifor;
+///
+/// ifor!(item in [1, 2, 3] {
+///     println!("{item}");
+/// });
+/// ```
+///
+/// Use with an infinite iterator:
+///
+/// ```
+/// use infinite_iterator::ifor;
+///
+/// # fn run() -> ! {
+/// ifor!(item in 0.. {
+///     println!("{item}");
+///     std::thread::sleep(std::time::Duration::from_secs(5));
+/// })
+/// # }
+/// ```
+///
+/// Infinite iterators additionally support breaking with a value:
+///
+/// ```
+/// use infinite_iterator::ifor;
+///
+/// let item = ifor!(item in 0.. {
+///     if item > 10 {
+///         break item;
+///     }
+/// });
+///
+/// assert_eq!(item, 11);
+/// ```
+///
+/// You can use loop labels with an `ifor!` too,
+/// as long as you write out the keyword `for`:
+///
+/// ```
+/// use infinite_iterator::ifor;
+///
+/// ifor!('outer: for a in 0..10 {
+///     ifor!('inner: for b in 0..10 {
+///         println!("{a}, {b}");
+///         if a + b > 16 {
+///             break 'outer;
+///         }
+///     });
+/// });
+/// ```
+#[macro_export]
+macro_rules! ifor {
+    ($($label:lifetime:)? for $pat:pat in $($rest:tt)*) => {
+        $crate::__ifor_inner!($($label:)? for $pat in () $($rest)*)
+    };
+    ($pat:pat in $($rest:tt)*) => {
+        $crate::__ifor_inner!(for $pat in () $($rest)*)
+    };
+}
+
+// Not public API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __ifor_inner {
+    ($($label:lifetime:)? for $pat:pat in ($expr:expr) $block:block) => {
+        match $crate::__private::IntoIterator::into_iter($expr) {
+            iter => {
+                let mut iter = $crate::__private::MaybeInfinite(iter);
+                $($label:)? loop {
+                    let $pat = {
+                        use $crate::__private::TryNextFallback;
+                        match iter.try_next() {
+                            $crate::__private::Ok(item) => item,
+                            $crate::__private::Err(breakable) => {
+                                break breakable.into_break()
+                            },
+                        }
+                    };
+                    $block
+                }
+            }
+        }
+    };
+    ($($label:lifetime:)? for $pat:pat in () $block:block) => {
+        $crate::__private::compile_error!("no expression provided to `ifor!`")
+    };
+    ($($label:lifetime:)? for $pat:pat in ($($expr:tt)*) $first:tt $($rest:tt)*) => {
+        $crate::__ifor_inner!($($label:)? for $pat in ($($expr)* $first) $($rest)*)
+    };
+}
+
+// Not public API.
+#[doc(hidden)]
+pub mod __private {
+    use crate::InfiniteIterator;
+
+    pub use core::compile_error;
+    pub use Err;
+    pub use IntoIterator;
+    pub use Ok;
+
+    pub struct MaybeInfinite<I>(pub I);
+
+    impl<I: InfiniteIterator> MaybeInfinite<I> {
+        pub fn try_next(&mut self) -> Result<I::Item, NeverBreak> {
+            Ok(self.0.next_infinite())
+        }
+    }
+
+    pub trait TryNextFallback: Sized {
+        type Item;
+        fn try_next(&mut self) -> Result<Self::Item, CanBreak>;
+    }
+    impl<I: Iterator> TryNextFallback for MaybeInfinite<I> {
+        type Item = I::Item;
+        fn try_next(&mut self) -> Result<Self::Item, CanBreak> {
+            self.0.next().ok_or(CanBreak)
+        }
+    }
+
+    pub enum NeverBreak {}
+    impl NeverBreak {
+        pub fn into_break(self) -> ! {
+            match self {}
+        }
+    }
+
+    pub struct CanBreak;
+    impl CanBreak {
+        pub fn into_break(self) {}
     }
 }
