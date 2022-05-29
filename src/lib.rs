@@ -32,6 +32,105 @@ pub trait InfiniteIterator: Iterator {
     /// Like [`Iterator::next`],
     /// but never returning [`None`] because the iterator never ends.
     fn next_infinite(&mut self) -> Self::Item;
+
+    /// Like [`Iterator::for_each`],
+    /// but it never returns because the iterator never ends.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use infinite_iterator::InfiniteIterator;
+    ///
+    /// fn run() -> ! {
+    ///     (0..).for_each_infinite(|num| {
+    ///         println!("{num}");
+    ///         std::thread::sleep(std::time::Duration::from_secs(5));
+    ///     })
+    /// }
+    /// ```
+    fn for_each_infinite<F: FnMut(Self::Item)>(mut self, mut f: F) -> !
+    where
+        Self: Sized,
+    {
+        loop {
+            f(self.next_infinite());
+        }
+    }
+
+    /// Like [`Iterator::find`],
+    /// but it is guaranteed to find an item
+    /// (or loop forever)
+    /// because the iterator is infinite.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use infinite_iterator::InfiniteIterator;
+    ///
+    /// assert_eq!((5..).find_infinite(|&num| num > 10), 11);
+    /// ```
+    fn find_infinite<P>(&mut self, mut predicate: P) -> Self::Item
+    where
+        Self: Sized,
+        P: FnMut(&Self::Item) -> bool,
+    {
+        loop {
+            let item = self.next_infinite();
+            if predicate(&item) {
+                break item;
+            }
+        }
+    }
+
+    /// Like [`Iterator::find_map`],
+    /// but it is guaranteed to find an item
+    /// (or loop forever)
+    /// because the iterator is infinite.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use infinite_iterator::InfiniteIterator;
+    ///
+    /// assert_eq!((5_u32..).step_by(3).find_map_infinite(|num| num.checked_sub(10)), 1);
+    /// ```
+    fn find_map_infinite<B, F>(&mut self, mut f: F) -> B
+    where
+        Self: Sized,
+        F: FnMut(Self::Item) -> Option<B>,
+    {
+        loop {
+            if let Some(mapped) = f(self.next_infinite()) {
+                break mapped;
+            }
+        }
+    }
+
+    /// Like [`Iterator::position`],
+    /// but it is guaranteed to find an item
+    /// (or loop forever)
+    /// because the iterator is infinite.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use infinite_iterator::InfiniteIterator;
+    ///
+    /// assert_eq!((5..).position_infinite(|num| num > 10), 6);
+    /// ```
+    fn position_infinite<P>(&mut self, mut predicate: P) -> usize
+    where
+        Self: Sized,
+        P: FnMut(Self::Item) -> bool,
+    {
+        let mut i = 0;
+        loop {
+            if predicate(self.next_infinite()) {
+                break i;
+            }
+            i += 1;
+        }
+    }
 }
 
 impl<I: ?Sized + InfiniteIterator> InfiniteIterator for &mut I {
