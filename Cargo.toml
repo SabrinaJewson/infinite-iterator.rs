@@ -1,0 +1,16 @@
+[package]
+name = "infinite-iterator"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.58.1"
+description = "A trait for iterators that never end"
+repository = "https://github.com/SabrinaJewson/infinite-iterator.rs"
+license = "MIT"
+keywords = ["infinite", "iter", "endless"]
+categories = ["rust-patterns"]
+
+[dependencies]
+
+[features]
+std = ["alloc"]
+alloc = []
